@@ -12,7 +12,15 @@ module PG
         connection_info = ConnectionInfo.from_connection_string(connection_string)
         return connection_string unless generate_auth_token?(connection_info)
 
-        connection_info.password = generate_auth_token(connection_info)
+        auth_token = generate_auth_token(connection_info)
+
+        if auth_token.respond_to?(:password)
+          connection_info.password = auth_token.password
+          connection_info.user = auth_token.user if auth_token.respond_to?(:user?) && auth_token.user?
+        else
+          connection_info.password = auth_token.to_s
+        end
+
         connection_info.to_s
       end
 
@@ -20,7 +28,13 @@ module PG
         connection_info = ConnectionInfo.from_active_record_configuration_hash(configuration_hash)
         return unless generate_auth_token?(connection_info)
 
-        psql_env["PGPASSWORD"] = generate_auth_token(connection_info)
+        auth_token = generate_auth_token(connection_info)
+        if auth_token.respond_to?(:password)
+          psql_env["PGPASSWORD"] = auth_token.password
+          psql_env["PGUSER"] = auth_token.user if auth_token.respond_to?(:user) && auth_token.user?
+        else
+          psql_env["PGPASSWORD"] = auth_token.to_s
+        end
       end
 
       private

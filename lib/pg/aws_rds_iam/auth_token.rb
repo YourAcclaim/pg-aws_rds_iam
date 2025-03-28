@@ -4,7 +4,12 @@ module PG
   module AWS_RDS_IAM
     class AuthToken
       def initialize(token)
-        @token = token
+        if token.is_a?(String)
+          @token = token
+        elsif token.respond_to?(:key)
+          @token = token[:password]
+          @user = token[:user]
+        end
         @generated_at = now
         @expiry = parse_expiry || 900
       end

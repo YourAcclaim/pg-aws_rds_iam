@@ -15,6 +15,10 @@ module PG
           @params[:user]
         end
 
+        def user=(value)
+          @params[:user] = value
+        end
+
         def host
           @params[:host]
         end

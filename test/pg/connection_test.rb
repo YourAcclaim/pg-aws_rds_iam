@@ -10,6 +10,12 @@ module PG
       AWS_RDS_IAM.auth_token_generators.add :example_auth_token_generator do
         ->(host:, port:, user:) { "token(#{user}@#{host}:#{port})" }
       end
+
+      AWS_RDS_IAM.auth_token_generators.add :example_redshift_token_generator do
+        ->(host:, port:, user:) do
+          ExampleRedshiftToken.new(user: "IAM:#{user}", password: "token(#{user}@#{host}:#{port})")
+        end
+      end
     end
 
     def teardown
@@ -26,7 +32,7 @@ module PG
       {
         ["postgresql://example_user@localhost:5432/example_database?aws_rds_iam_auth_token_generator=example_auth_token_generator"] => "postgresql://example_user@localhost:5432/example_database?password=token(example_user@localhost:5432)",
         ["postgresql://?user=example_user&host=localhost&port=5432&dbname=example_database&aws_rds_iam_auth_token_generator=example_auth_token_generator"] => "postgresql://?user=example_user&host=localhost&port=5432&dbname=example_database&password=token(example_user@localhost:5432)",
-        ["postgresql://", { user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_auth_token_generator" }] => "postgresql://?user=example_user&host=localhost&port=5432&dbname=example_database&password=token(example_user@localhost:5432)"
+        ["postgresql://", { user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_auth_token_generator" }] => "postgresql://?user=example_user&host=localhost&port=5432&dbname=example_database&password=token(example_user@localhost:5432)",
       }.each do |args, expected_before_pg_1_4|
         actual = Connection.parse_connect_args(*args)
 
@@ -38,6 +44,19 @@ module PG
       end
     end
 
+    def test_parse_connect_args_to_uri_with_user
+      args = ["postgresql://", { user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_redshift_token_generator" }]
+      actual = Connection.parse_connect_args(*args)
+
+      if Gem::Version.new(PG::VERSION) >= Gem::Version.new("1.4.0")
+        expected = "user='IAM:example_user' host='localhost' port='5432' dbname='example_database' password='token(example_user@localhost:5432)'"
+        assert_keyword_value_string_match expected, actual
+      else
+        expected = "postgresql://?user=IAM:example_user&host=localhost&port=5432&dbname=example_database&password=token(example_user@localhost:5432)"
+        assert_uri_match expected_before_pg_1_4, actual
+      end
+    end
+
     def test_parse_connect_args_to_keyword_value_string
       expected = "user='example_user' host='localhost' port='5432' dbname='example_database' password='token(example_user@localhost:5432)'"
 
@@ -45,6 +64,19 @@ module PG
         ["user=example_user host=localhost port=5432 dbname=example_database aws_rds_iam_auth_token_generator=example_auth_token_generator"],
         [{ user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_auth_token_generator" }],
         ["localhost", 5432, nil, nil, "example_database", "example_user", nil, { aws_rds_iam_auth_token_generator: "example_auth_token_generator" }]
+      ].each do |args|
+        assert_keyword_value_string_match expected, Connection.parse_connect_args(*args)
+      end
+    end
+
+    def test_parse_connect_args_to_keyword_value_string_with_user
+      expected = "user='IAM:example_user' host='localhost' port='5432' dbname='example_database' password='token(example_user@localhost:5432)'"
+
+      [
+        ["user=example_user host=localhost port=5432 dbname=example_database aws_rds_iam_auth_token_generator=example_redshift_token_generator"],
+        [{ user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_redshift_token_generator" }],
+        ["localhost", 5432, nil, nil, "example_database", "example_user", nil, { aws_rds_iam_auth_token_generator: "example_redshift_token_generator" }],
+        [{ user: "example_user", host: "localhost", port: 5432, dbname: "example_database", aws_rds_iam_auth_token_generator: "example_redshift_token_generator" }],
       ].each do |args|
         assert_keyword_value_string_match expected, Connection.parse_connect_args(*args)
       end
@@ -86,6 +118,19 @@ module PG
 
     def parse_keyword_value_string(connection_string)
       AWS_RDS_IAM.const_get(:ConnectionInfo)::KeywordValueString.new(connection_string).to_h
+    end
+
+    class ExampleRedshiftToken
+      attr_reader :password, :user
+
+      def initialize(user:, password:)
+        @user = user
+        @password = password
+      end
+
+      def user?
+        true
+      end
     end
   end
 end
